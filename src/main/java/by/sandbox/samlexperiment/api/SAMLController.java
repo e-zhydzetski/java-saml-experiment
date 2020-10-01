@@ -1,5 +1,6 @@
 package by.sandbox.samlexperiment.api;
 
+import by.sandbox.samlexperiment.domain.IDProvider;
 import by.sandbox.samlexperiment.domain.User;
 import by.sandbox.samlexperiment.domain.Users;
 import com.onelogin.saml2.Auth;
@@ -23,9 +24,11 @@ import java.util.Map;
 @RequestMapping("/api/saml")
 public class SAMLController {
     private final Users users;
+    private final IDProvider idProvider;
 
-    public SAMLController(Users users) {
+    public SAMLController(Users users, IDProvider idProvider) {
         this.users = users;
+        this.idProvider = idProvider;
     }
 
     @GetMapping(value = "/metadata", produces = "text/xml; charset=UTF-8")
@@ -63,7 +66,7 @@ public class SAMLController {
         for (Map.Entry<String, List<String>> attr : attributes.entrySet()) {
             log.info("{}: {}", attr.getKey(), attr.getValue());
         }
-        User user = makeUserFromAttributes(attributes);
+        User user = idProvider.makeUserFromAttributes(attributes);
         user = user.withNewSessionToken();
         users.save(user);
 
@@ -79,27 +82,8 @@ public class SAMLController {
         Cookie cookie = new Cookie(AppController.SESSION_TOKEN_COOKIE_NAME, sessionToken);
         cookie.setMaxAge(10 * 60); // 10 minutes
         cookie.setPath("/");
-//        cookie.setHttpOnly(true);
+        cookie.setHttpOnly(true);
         response.addCookie(cookie);
-    }
-
-
-    private User makeUserFromAttributes(Map<String, List<String>> attributes) {
-        return new User(
-                getFirstAttribute(attributes, "urn:oasis:names:tc:SAML:attribute:subject-id"),
-                getFirstAttribute(attributes, "urn:oid:0.9.2342.19200300.100.1.3"),
-                getFirstAttribute(attributes, "urn:oid:2.5.4.42"),
-                getFirstAttribute(attributes, "urn:oid:2.5.4.4"),
-                getFirstAttribute(attributes, "https://samltest.id/attributes/role"),
-                null
-        );
-    }
-
-    private String getFirstAttribute(Map<String, List<String>> attributes, String name) {
-        List<String> attr = attributes.get(name);
-        if (attr == null || attr.isEmpty())
-            throw new IllegalArgumentException("Attribute " + name + " not found");
-        return attr.get(0);
     }
 
     @PostMapping(value = "/logout")
@@ -117,7 +101,7 @@ public class SAMLController {
             throw new IllegalStateException(StringUtils.join(errors, ", "));
         }
 
-        User user = users.get(getFirstAttribute(auth.getAttributes(), "urn:oasis:names:tc:SAML:attribute:subject-id"));
+        User user = users.get(idProvider.getUserId(auth.getAttributes()));
         user = user.withRevokedSessionToken();
         users.save(user);
     }
